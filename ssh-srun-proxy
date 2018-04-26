@@ -1,0 +1,101 @@
+#!/bin/sh
+
+# ssh-srun-proxy: Use srun to enter the correct job cgroup/namespace
+# and start a private sshd that will let us use standard ssh
+#
+###########################################################################
+#   Copyright 2018
+#   National Supercomputer Centre, Linköping University, Sweden
+###########################################################################
+#
+# Authors:
+#  Jonas Stare <jonst@nsc.liu.se>
+#
+
+# External configuration. /etc/ssh/config or ~/.ssh/config need to include:
+#
+# Host !n*.* n1* n2* n3* n4* n5* n6* n7* n8* n9*
+#	ProxyCommand=ssh-srun-proxy connect %h
+#	GlobalKnownHostsFile=/dev/null
+#	IdentityFile=~/.ssh-srun-proxy/id_rsa
+#	StrictHostKeyChecking=no
+#	VerifyHostKeyDNS=no
+#	EnableSSHKeysign=no
+#	UserKnownHostsFile=/dev/null
+#
+
+SSP_KEYDIR=${HOME}/.ssh-srun-proxy
+
+usage() {
+  cat <<EOF
+$0: A small tool to enable ssh to connect via srun
+
+$0 init
+	Setup keys and ssh-config
+$0 connect <host>
+	Connect to <host> with srun
+$0 sshd
+	Start sshd
+EOF
+  exit 1
+}
+
+ssp_init() {
+  # Create folder and ssh-keys
+  if [ ! -d "$SSP_KEYDIR" ]; then
+    mkdir -p $SSP_KEYDIR
+    chmod 700 $SSP_KEYDIR
+  fi
+  if [ ! -f "${SSP_KEYDIR}/id_rsa" ]; then
+    ssh-keygen -N "" -C "ssh-srun-proxy_key" -f ${SSP_KEYDIR}/id_rsa
+    chmod 600 ${SSP_KEYDIR}/id_rsa*
+  fi
+}
+
+# If we have no command...exit here.
+if [ "$1" = "" ]; then
+  usage
+fi
+
+case "$1" in
+  init)
+    ssp_init
+    break;;
+
+  connect)
+    # Check that keys are present
+    if [ ! -f "${SSP_KEYDIR}/id_rsa" ]; then
+      ssp_init > /dev/null
+    fi
+    # Check that we've been given a remote host
+    if [ "$2" == "" ]; then
+      echo "Missing remote host." > /dev/stderr
+      exit 1
+    fi
+    # Unless SLURM_JOB_ID is set, try to find ONE running job on the node
+    if [ "$SLURM_JOB_ID" == "" -a "$SLURM_JOBID" != "" ]; then
+      SLURM_JOB_ID=$SLURM_JOBID
+    fi
+    if [ "$SLURM_JOB_ID" == "" ]; then
+      SLURM_JOB_ID=$(squeue -w $2 -u ${USER} -t r -h -o %A)
+      if [ "$SLURM_JOB_ID" == "" -o $(echo $SLURM_JOB_ID|wc -w) -gt 1 ]; then
+        echo "Need exactly ONE SLURM_JOB_ID. Got:" > /dev/stderr
+        echo $SLURM_JOB_ID > /dev/stderr
+        exit 1
+      fi
+    fi
+    srun -Q -E -N1 -n1 --mem-per-cpu=0 -w$2 --jobid=${SLURM_JOB_ID} $0 sshd
+    break;;
+
+  sshd)
+    /usr/sbin/sshd -i -f /dev/null -o HostKey=${SSP_KEYDIR}/id_rsa \
+     -o UsePrivilegeSeparation=no -o UsePAM=no \
+     -o AuthorizedKeysFile=${SSP_KEYDIR}/id_rsa.pub \
+     -o HostbasedAuthentication=no -o X11Forwarding=yes -o LogLevel=QUIET
+    exit 0
+    break;;
+
+  *)
+    usage
+esac
+

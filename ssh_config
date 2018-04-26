@@ -1,0 +1,8 @@
+Host !n*.* n1* n2* n3* n4* n5* n6* n7* n8* n9*
+	ProxyCommand=ssh-srun-proxy connect %h
+	GlobalKnownHostsFile=/dev/null
+	IdentityFile=~/.ssh-srun-proxy/id_rsa
+	StrictHostKeyChecking=no
+	VerifyHostKeyDNS=no
+	EnableSSHKeysign=no
+	UserKnownHostsFile=/dev/null
