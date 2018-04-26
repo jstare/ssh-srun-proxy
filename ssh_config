@@ -1,3 +1,7 @@
+# ssh-config for ssh-srun-proxy
+#
+# Host is meant to ignore any hosts that is outside
+# of the cluster and only match compute nodes
 Host !n*.* n1* n2* n3* n4* n5* n6* n7* n8* n9*
 	ProxyCommand=ssh-srun-proxy connect %h
 	GlobalKnownHostsFile=/dev/null
